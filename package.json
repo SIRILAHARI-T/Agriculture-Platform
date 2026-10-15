@@ -1,0 +1,17 @@
+{
+  "name": "agriculture-platform",
+  "version": "1.0.0",
+  "description": "AgriSmart AI — Full-stack Agriculture Platform (MERN)",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently --kill-others-on-fail --prefix-colors \"green,cyan\" --names \"SERVER,CLIENT\" \"npm run server\" \"npm run client\"",
+    "server": "cd server && npm start",
+    "server:dev": "cd server && npm run dev",
+    "client": "cd client && npm run dev",
+    "install:all": "npm install && cd server && npm install && cd ../client && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
+
