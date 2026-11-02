@@ -16,15 +16,14 @@ const LoginPage = () => {
     e.preventDefault();
     setError("");
     setSubmitting(true);
-    try {
-      const res = await login(email, password);
-      if (res.success) {
-        navigate("/");
-      } else {
-        setError(res.message || "Failed to log in. Please check your credentials.");
-      }
-    } finally {
-      setSubmitting(false);
+
+    const res = await login(email, password);
+    setSubmitting(false);
+
+    if (res.success) {
+      navigate("/");
+    } else {
+      setError(res.message || "Failed to log in. Please check your credentials.");
     }
   };
 

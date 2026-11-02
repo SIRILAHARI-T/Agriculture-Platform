@@ -119,47 +119,44 @@ const getMarketPrices = async (req, res) => {
 
     const { category, search } = req.query;
 
-    const buildCropNameRegex = (name) => {
-      const clean = String(name || "").trim();
-      if (/paddy|rice/i.test(clean)) {
-        return /^(paddy|rice|paddy \(rice\)|paddy\(dhan\).*)/i;
-      }
-      if (/maize|corn/i.test(clean)) {
-        return /^(maize|corn)/i;
-      }
-      return new RegExp(`^${escapeRegex(clean)}$`, "i");
-    };
-
     const filter = {
-      $or: cropNames.map((name) => ({
-        cropName: buildCropNameRegex(name),
-      })),
+      cropName: {
+        $in: cropNames.map(
+          (name) =>
+            new RegExp(`^${escapeRegex(name)}$`, "i")
+        ),
+      },
     };
 
-    if (category && category !== "All") {
+    if (
+      category &&
+      category !== "All"
+    ) {
       filter.category = category;
     }
 
-    if (typeof search === "string" && search.trim()) {
-      const trimmed = search.trim();
-      // Allow flexible whitespace matching (e.g. "Chenger i" matches "Chengeri")
-      const flexible = escapeRegex(trimmed).replace(/\s+/g, "\\s*");
-      const searchRegex = new RegExp(flexible, "i");
+    if (
+      typeof search === "string" &&
+      search.trim()
+    ) {
+      const searchRegex = new RegExp(
+        escapeRegex(search.trim()),
+        "i"
+      );
 
-      const orConditions = [
-        { cropName: searchRegex },
-        { marketName: searchRegex },
-        { state: searchRegex },
-        { district: searchRegex },
-        { variety: searchRegex },
+      // Use $and so the search condition doesn't overwrite
+      // the crop filter or the selected category.
+      filter.$and = [
+        {
+          $or: [
+            { cropName: searchRegex },
+            { marketName: searchRegex },
+            { state: searchRegex },
+            { district: searchRegex },
+            { variety: searchRegex },
+          ],
+        },
       ];
-
-      // Support searching "rice" or "paddy" interchangeably
-      if (/paddy|rice/i.test(trimmed)) {
-        orConditions.push({ cropName: /paddy|rice/i });
-      }
-
-      filter.$and = [{ $or: orConditions }];
     }
 
     console.log(
@@ -183,34 +180,60 @@ const getMarketPrices = async (req, res) => {
       prices.length
     );
 
-    // If any farmer crop has zero records saved, fetch it from government API now
-    const foundCrops = new Set(prices.map((p) => String(p.cropName || "").toLowerCase()));
-    const missingCrops = cropNames.filter(
-      (c) =>
-        !foundCrops.has(c.toLowerCase()) &&
-        !(/paddy|rice/i.test(c) && (foundCrops.has("paddy") || foundCrops.has("rice")))
-    );
+    /*
+     * If no exact crop-name matches were found, do a
+     * diagnostic query for the farmer's crops without
+     * category/search filters. This helps distinguish
+     * missing crop records from overly restrictive filters.
+     */
+    if (prices.length === 0) {
+      const basicFilter = {
+        cropName: {
+          $in: cropNames.map(
+            (name) =>
+              new RegExp(
+                `^${escapeRegex(name)}$`,
+                "i"
+              )
+          ),
+        },
+      };
 
-    if (missingCrops.length > 0) {
-      console.log("Missing market data for crops:", missingCrops, "- refreshing from government API...");
-      try {
-        const freshData = await refreshMarketPricesForFarmer({
-          state,
-          district,
-          cropNames: missingCrops,
-        });
-        if (freshData.length > 0) {
-          await saveMarketData(freshData);
-          prices = await MarketPrice.find(filter)
-            .sort({
-              cropName: 1,
-              marketName: 1,
-            })
-            .lean();
-        }
-      } catch (err) {
-        console.warn("Synchronous refresh for missing crops failed:", err.message);
-      }
+      const basicMatches = await MarketPrice.find(
+        basicFilter
+      )
+        .select("cropName marketName state district currentPrice")
+        .limit(10)
+        .lean();
+
+      console.log(
+        "Matches without category/search filters:",
+        basicMatches.length
+      );
+
+      console.log(
+        "Example matching records:",
+        basicMatches
+      );
+
+      /*
+       * This diagnostic query checks whether Potato
+       * records exist independently of the farmer filter.
+       */
+      const potatoRecords = await MarketPrice.find({
+        cropName: {
+          $regex: "^Potato$",
+          $options: "i",
+        },
+      })
+        .select("cropName marketName state district currentPrice")
+        .limit(5)
+        .lean();
+
+      console.log(
+        "Potato records available in database:",
+        potatoRecords.length
+      );
     }
 
     // ==================================================

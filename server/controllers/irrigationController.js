@@ -1,7 +1,7 @@
 const IrrigationSchedule = require("../models/IrrigationSchedule");
 const Crop = require("../models/Crop");
 const Farm = require("../models/Farm");
-const { calculateWaterRequirement, LITERS_PER_MM_PER_ACRE } = require("../services/irrigationService");
+const { calculateWaterRequirement } = require("../services/irrigationService");
 const { getWeatherByCoordinates } = require("../services/weatherService");
 
 // @desc    Get smart irrigation overview with real-time water requirements
@@ -12,45 +12,38 @@ const getIrrigationOverview = async (req, res) => {
     const crops = await Crop.find({ user: req.user._id, growthStage: { $ne: "Harvested" } }).populate("farm");
     const farms = await Farm.find({ user: req.user._id });
 
-    // Weather caching map by coordinate string to avoid duplicate weather calls
-    const weatherCache = {};
-
-    const getWeatherForFarm = async (farm) => {
-      const coords = farm?.coordinates || farms[0]?.coordinates || { latitude: 11.0168, longitude: 76.9558 };
-      const key = `${coords.latitude},${coords.longitude}`;
-      if (!weatherCache[key]) {
-        weatherCache[key] = await getWeatherByCoordinates(coords.latitude, coords.longitude);
-      }
-      return weatherCache[key];
-    };
+    // Fetch primary weather for computation
+    let primaryWeather = {};
+    if (farms.length > 0 && farms[0].coordinates) {
+      primaryWeather = await getWeatherByCoordinates(
+        farms[0].coordinates.latitude,
+        farms[0].coordinates.longitude
+      );
+    }
 
     // Compute live water requirements for each active crop
-    const cropRequirements = [];
-    for (const crop of crops) {
-      const farm = crop.farm || farms[0] || { soilType: "Loamy", totalArea: 5, name: "Default Farm" };
-      const weather = await getWeatherForFarm(farm);
-
-      cropRequirements.push({
+    const cropRequirements = crops.map((crop) => {
+      const farm = crop.farm || farms[0] || { soilType: "Loamy", totalArea: 5 };
+      return {
         cropId: crop._id,
         farmId: farm._id,
         farmName: farm.name || "Default Farm",
-        ...calculateWaterRequirement(crop, farm, weather),
-      });
-    }
+        ...calculateWaterRequirement(crop, farm, primaryWeather),
+      };
+    });
 
     // Total daily water needed across all plots
-    const totalDailyLiters = cropRequirements.reduce((acc, curr) => acc + (curr.totalWaterLiters || 0), 0);
+    const totalDailyLiters = cropRequirements.reduce((acc, curr) => acc + curr.totalWaterLiters, 0);
 
-    // Upcoming scheduled runs (Pending)
+    // Upcoming scheduled runs
     const upcomingSchedules = await IrrigationSchedule.find({
       user: req.user._id,
       status: "Pending",
     })
-      .populate("crop", "name variety allocatedArea")
-      .populate("farm", "name soilType")
-      .sort({ scheduledDate: 1 });
-
-    const primaryWeather = farms.length > 0 ? await getWeatherForFarm(farms[0]) : {};
+      .populate("crop", "name variety")
+      .populate("farm", "name")
+      .sort({ scheduledDate: 1 })
+      .limit(5);
 
     res.json({
       success: true,
@@ -61,7 +54,6 @@ const getIrrigationOverview = async (req, res) => {
       weatherSnapshot: primaryWeather.current || null,
     });
   } catch (error) {
-    console.error("Irrigation overview error:", error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -72,8 +64,8 @@ const getIrrigationOverview = async (req, res) => {
 const getSchedules = async (req, res) => {
   try {
     const schedules = await IrrigationSchedule.find({ user: req.user._id })
-      .populate("crop", "name variety growthStage allocatedArea")
-      .populate("farm", "name location soilType totalArea")
+      .populate("crop", "name variety growthStage")
+      .populate("farm", "name location")
       .sort({ scheduledDate: 1 });
 
     res.json({
@@ -82,7 +74,6 @@ const getSchedules = async (req, res) => {
       schedules,
     });
   } catch (error) {
-    console.error("Get schedules error:", error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -102,65 +93,27 @@ const createSchedule = async (req, res) => {
       notes,
     } = req.body;
 
-    if (!crop) {
+    if (!farm || !crop || !scheduledDate) {
       return res.status(400).json({
         success: false,
-        message: "Please select a crop for the watering schedule.",
+        message: "Please specify farm, crop, and scheduled date",
       });
     }
-
-    if (!scheduledDate) {
-      return res.status(400).json({
-        success: false,
-        message: "Please select a scheduled date.",
-      });
-    }
-
-    const parsedDate = new Date(scheduledDate);
-    if (isNaN(parsedDate.getTime())) {
-      return res.status(400).json({
-        success: false,
-        message: "Please provide a valid date format.",
-      });
-    }
-
-    const mm = Number(waterRequirementMm);
-    if (!Number.isFinite(mm) || mm <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Water depth (mm) must be a positive number greater than 0.",
-      });
-    }
-
-    // Verify crop ownership and find association
-    const cropDoc = await Crop.findOne({ _id: crop, user: req.user._id });
-    if (!cropDoc) {
-      return res.status(404).json({
-        success: false,
-        message: "Selected crop was not found in your account.",
-      });
-    }
-
-    const farmId = farm || cropDoc.farm;
-    const acres = Number(cropDoc.allocatedArea) || 1;
-    const computedLiters = Math.round(mm * LITERS_PER_MM_PER_ACRE * acres);
-    const finalLiters = Number(waterRequirementLiters) > 0 ? Number(waterRequirementLiters) : computedLiters;
 
     const schedule = await IrrigationSchedule.create({
       user: req.user._id,
-      farm: farmId,
-      crop: cropDoc._id,
-      waterRequirementMm: mm,
-      waterRequirementLiters: finalLiters,
+      farm,
+      crop,
+      waterRequirementMm: waterRequirementMm || 20,
+      waterRequirementLiters: waterRequirementLiters || 0,
       irrigationMethod: irrigationMethod || "Drip",
-      scheduledDate: parsedDate,
-      notes: notes ? String(notes).trim() : "",
-      status: "Pending",
+      scheduledDate,
+      notes: notes || "",
     });
 
     const populated = await IrrigationSchedule.findById(schedule._id)
-      .populate("crop", "name variety growthStage allocatedArea")
-      .populate("farm", "name location soilType");
+      .populate("crop", "name")
+      .populate("farm", "name");
 
     res.status(201).json({
       success: true,
@@ -168,12 +121,11 @@ const createSchedule = async (req, res) => {
       schedule: populated,
     });
   } catch (error) {
-    console.error("Create schedule error:", error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// @desc    Update schedule status (Completed / Postponed due to Rain / Skipped)
+// @desc    Update schedule status (Completed / Postponed)
 // @route   PATCH /api/irrigation/schedules/:id/status
 // @access  Private
 const updateScheduleStatus = async (req, res) => {
@@ -185,18 +137,9 @@ const updateScheduleStatus = async (req, res) => {
       return res.status(404).json({ success: false, message: "Schedule not found" });
     }
 
-    if (status) {
-      const allowed = ["Pending", "Completed", "Postponed due to Rain", "Skipped"];
-      if (!allowed.includes(status)) {
-        return res.status(400).json({ success: false, message: "Invalid status value" });
-      }
-      schedule.status = status;
-      if (status === "Completed") schedule.completedAt = new Date();
-    }
-
-    if (weatherAdjustmentReason) {
-      schedule.weatherAdjustmentReason = weatherAdjustmentReason;
-    }
+    if (status) schedule.status = status;
+    if (status === "Completed") schedule.completedAt = new Date();
+    if (weatherAdjustmentReason) schedule.weatherAdjustmentReason = weatherAdjustmentReason;
 
     await schedule.save();
 
@@ -206,7 +149,6 @@ const updateScheduleStatus = async (req, res) => {
       schedule,
     });
   } catch (error) {
-    console.error("Update schedule status error:", error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -222,9 +164,8 @@ const deleteSchedule = async (req, res) => {
     }
 
     await schedule.deleteOne();
-    res.json({ success: true, message: "Irrigation schedule deleted successfully" });
+    res.json({ success: true, message: "Irrigation schedule deleted" });
   } catch (error) {
-    console.error("Delete schedule error:", error.message);
     res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -236,3 +177,4 @@ module.exports = {
   updateScheduleStatus,
   deleteSchedule,
 };
+

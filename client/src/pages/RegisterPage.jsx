@@ -15,8 +15,6 @@ const RegisterPage = () => {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const [successMsg, setSuccessMsg] = useState("");
-
   const { register } = useAuth();
   const navigate = useNavigate();
 
@@ -27,25 +25,15 @@ const RegisterPage = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-    setSuccessMsg("");
-
-    // Front-end validation
-    if (formData.password.length < 6) {
-      setError("Password must be at least 6 characters.");
-      return;
-    }
-
     setSubmitting(true);
-    try {
-      const res = await register(formData);
-      if (res.success) {
-        setSuccessMsg("Account created! Redirecting to your dashboard...");
-        setTimeout(() => navigate("/"), 1500);
-      } else {
-        setError(res.message || "Registration failed. Please review your details.");
-      }
-    } finally {
-      setSubmitting(false);
+
+    const res = await register(formData);
+    setSubmitting(false);
+
+    if (res.success) {
+      navigate("/");
+    } else {
+      setError(res.message || "Registration failed. Please review your details.");
     }
   };
 
@@ -109,23 +97,6 @@ const RegisterPage = () => {
             }}
           >
             {error}
-          </div>
-        )}
-
-        {successMsg && (
-          <div
-            style={{
-              background: "#f0fdf4",
-              border: "1px solid #bbf7d0",
-              color: "#15803d",
-              padding: "10px 14px",
-              borderRadius: "8px",
-              fontSize: "0.85rem",
-              marginBottom: "18px",
-              fontWeight: 600,
-            }}
-          >
-            {successMsg}
           </div>
         )}
 

@@ -1,3 +1,8 @@
+const dns = require("dns");
+
+// Preserve DNS resolution for MongoDB Atlas SRV connection
+dns.setServers(["8.8.8.8", "1.1.1.1"]);
+
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
@@ -32,19 +37,6 @@ app.get("/", (req, res) => {
   });
 });
 
-// System health/status endpoint (does NOT require auth, does NOT expose credentials)
-app.get("/api/status", (req, res) => {
-  const dbState = mongoose.connection.readyState;
-  // 0 = disconnected, 1 = connected, 2 = connecting, 3 = disconnecting
-  const dbStatus = dbState === 1 ? "connected" : dbState === 2 ? "connecting" : "disconnected";
-  const httpStatus = dbState === 1 ? 200 : 503;
-  res.status(httpStatus).json({
-    status: dbState === 1 ? "ok" : "degraded",
-    database: dbStatus,
-    timestamp: new Date().toISOString(),
-  });
-});
-
 // Mount modular API routes
 app.use("/api/auth", authRoutes);
 app.use("/api/farms", farmRoutes);
@@ -67,7 +59,7 @@ mongoose
     serverSelectionTimeoutMS: 10000,
   })
   .then(() => {
-    console.log("MongoDB local database connected successfully");
+    console.log("MongoDB Atlas connected successfully");
   })
   .catch((error) => {
     console.error("MongoDB connection failed:");
@@ -76,8 +68,7 @@ mongoose
 
 
 const PORT = process.env.PORT || 5000;
-const HOST = "0.0.0.0";
 
-app.listen(PORT, HOST, () => {
-  console.log(`Server running on http://${HOST}:${PORT}`);
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
 });

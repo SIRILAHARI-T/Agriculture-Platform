@@ -38,49 +38,27 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = async (email, password) => {
-    try {
-      const res = await API.post("/auth/login", { email, password });
-      if (res.data.success) {
-        setToken(res.data.token);
-        setUser(res.data.user);
-        localStorage.setItem("agri_token", res.data.token);
-        localStorage.setItem("agri_user", JSON.stringify(res.data.user));
-        return { success: true };
-      }
-      return { success: false, message: res.data.message };
-    } catch (error) {
-      const message =
-        error.response?.data?.message ||
-        (error.code === "ECONNABORTED"
-          ? "Request timed out. Please check your connection."
-          : error.message === "Network Error"
-          ? "Cannot connect to server. Make sure the backend is running."
-          : "Login failed. Please try again.");
-      return { success: false, message };
+    const res = await API.post("/auth/login", { email, password });
+    if (res.data.success) {
+      setToken(res.data.token);
+      setUser(res.data.user);
+      localStorage.setItem("agri_token", res.data.token);
+      localStorage.setItem("agri_user", JSON.stringify(res.data.user));
+      return { success: true };
     }
+    return { success: false, message: res.data.message };
   };
 
   const register = async (formData) => {
-    try {
-      const res = await API.post("/auth/register", formData);
-      if (res.data.success) {
-        setToken(res.data.token);
-        setUser(res.data.user);
-        localStorage.setItem("agri_token", res.data.token);
-        localStorage.setItem("agri_user", JSON.stringify(res.data.user));
-        return { success: true };
-      }
-      return { success: false, message: res.data.message };
-    } catch (error) {
-      const message =
-        error.response?.data?.message ||
-        (error.code === "ECONNABORTED"
-          ? "Request timed out. Please check your connection."
-          : error.message === "Network Error"
-          ? "Cannot connect to server. Make sure the backend is running."
-          : "Registration failed. Please try again.");
-      return { success: false, message };
+    const res = await API.post("/auth/register", formData);
+    if (res.data.success) {
+      setToken(res.data.token);
+      setUser(res.data.user);
+      localStorage.setItem("agri_token", res.data.token);
+      localStorage.setItem("agri_user", JSON.stringify(res.data.user));
+      return { success: true };
     }
+    return { success: false, message: res.data.message };
   };
 
   const logout = () => {

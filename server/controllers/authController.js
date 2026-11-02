@@ -28,9 +28,9 @@ const registerUser = async (req, res) => {
 
     const userExists = await User.findOne({ email: email.toLowerCase() });
     if (userExists) {
-      return res.status(409).json({
+      return res.status(400).json({
         success: false,
-        message: "An account with this email already exists. Please sign in or use a different email.",
+        message: "An account with this email already exists",
       });
     }
 
@@ -58,7 +58,6 @@ const registerUser = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("[Registration Error]", error.name, error.message);
     res.status(500).json({
       success: false,
       message: error.message || "Registration failed",
@@ -111,7 +110,6 @@ const loginUser = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("[Login Error]", error.name, error.message);
     res.status(500).json({
       success: false,
       message: error.message || "Login failed",
